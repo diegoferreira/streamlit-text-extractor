@@ -14,12 +14,12 @@ st.markdown(
 
 def fetch_with_fallback(url: str) -> str | None:
     """Tenta baixar a página com Trafilatura; se falhar, usa requests com um User‑Agent comum."""
-    # 1) Tentativa direta (Trafilatura já define um User‑Agent aceitável)
+    # 1) Tentativa direta
     downloaded = trafilatura.fetch_url(url)
     if downloaded:
         return downloaded
 
-    # 2) Fallback manual caso o site bloqueie o crawler
+    # 2) Fallback manual com requests
     try:
         resp = requests.get(
             url,
@@ -40,28 +40,58 @@ def fetch_with_fallback(url: str) -> str | None:
     return None
 
 
+def extract_text(html: str) -> str | None:
+    """Tenta várias abordagens de extração até conseguir algum texto útil."""
+    # 1) Heurísticas padrão (precisão)
+    text = trafilatura.extract(
+        html,
+        include_formatting=False,
+        include_links=False,
+        favor_recall=False,
+    )
+    if text:
+        return text.strip()
+
+    # 2) Heurísticas de recall (mais permissivas)
+    text = trafilatura.extract(
+        html,
+        include_formatting=False,
+        include_links=False,
+        favor_recall=True,
+    )
+    if text:
+        return text.strip()
+
+    # 3) Conversão simples HTML→TXT (captura tudo, sem filtros)
+    try:
+        text = trafilatura.html2txt(html)
+        if text:
+            return text.strip()
+    except Exception:
+        pass
+
+    return None
+
+
 url = st.text_input("Insira a URL a ser processada:")
 
 if url:
     with st.spinner("⌛ Baixando e extraindo conteúdo…"):
-        downloaded = fetch_with_fallback(url)
-        if not downloaded:
+        html = fetch_with_fallback(url)
+        if not html:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
             # ------------------  TÍTULO  ------------------
             title: str | None = None
-
-            # 1) Função oficial (Trafilatura ≥ 1.6)
             try:
                 from trafilatura import extract_title  # type: ignore
-                title = extract_title(downloaded)
+                title = extract_title(html)
             except Exception:
                 pass
 
-            # 2) Metadados (funciona em várias versões)
             if title is None:
                 try:
-                    meta = trafilatura.extract_metadata(downloaded)
+                    meta = trafilatura.extract_metadata(html)
                     if meta:
                         if isinstance(meta, dict):
                             title = meta.get("title")
@@ -76,17 +106,7 @@ if url:
             title = title or "Título não encontrado"
 
             # ------------------  TEXTO  ------------------
-            try:
-                text = trafilatura.extract(
-                    downloaded,
-                    include_formatting=False,
-                    include_links=False,
-                    favor_recall=False,
-                )
-            except Exception:
-                text = None
-
-            text = text or "Texto não encontrado"
+            text = extract_text(html) or "Texto não encontrado"
 
             # ------------------  UI  ------------------
             st.success("✅ Conteúdo extraído com sucesso!")
