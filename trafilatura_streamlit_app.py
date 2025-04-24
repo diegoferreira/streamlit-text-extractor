@@ -53,11 +53,44 @@ def maybe_amp_url(url: str) -> str:
 # Next.js specific helpers
 # ----------------------------
 
-def extract_from_next_data(html: str) -> str | None:
-    """Para sites em Next.js, extrai conteúdo do script __NEXT_DATA__."""
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
-    if not m:
+def def extract_from_next_data(html: str) -> str | None:
+    """Tenta extrair o texto a partir do script JSON `__NEXT_DATA__`.
+
+    • Usa regex que captura tanto aspas simples quanto duplas.
+    • Se houver múltiplos scripts, pega o **último** (costuma trazer o payload completo).
+    """
+    # 1) Captura todos os blocos JSON de __NEXT_DATA__
+    scripts = re.findall(r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', html, re.DOTALL)
+    if not scripts:
         return None
+
+    # O último tende a conter o artigo completo
+    for raw_json in reversed(scripts):
+        try:
+            data = json.loads(raw_json)
+        except Exception:
+            continue
+
+        # Caminhos possíveis: pageProps.post.content ou pageProps.data.post.content
+        post_obj = (
+            data.get("props", {})
+            .get("pageProps", {})
+        )
+        if not post_obj:
+            continue
+
+        # Algumas páginas aninham em "data":{...}
+        post_obj = post_obj.get("post") or post_obj.get("data", {}).get("post")
+        if not post_obj or not isinstance(post_obj, dict):
+            continue
+
+        content_html = post_obj.get("content")
+        if content_html and isinstance(content_html, str):
+            txt = trafilatura.html2txt(content_html)
+            if txt and len(txt.split()) > 50:
+                return txt.strip()
+
+    return None
     try:
         data = json.loads(m.group(1))
         # Caminho comum: data['props']['pageProps']['post']['content']
