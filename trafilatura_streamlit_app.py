@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import trafilatura
 
@@ -16,25 +17,49 @@ if url:
         if downloaded is None:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
-            # --- TÍTULO ---
-            # Versões recentes da Trafilatura (≥ 1.6) expõem extract_title; faça fallback caso não exista
+            # ------------------  TÍTULO  ------------------
+            title: str | None = None
+
+            # 1) Função oficial (Trafilatura ≥ 1.6)
             try:
                 from trafilatura import extract_title  # type: ignore
                 title = extract_title(downloaded)
-            except (ImportError, AttributeError):
-                meta = trafilatura.extract_metadata(downloaded)
-                title = meta["title"] if meta and meta.get("title") else None
+            except Exception:
+                pass
+
+            # 2) Metadados (funciona em várias versões)
+            if title is None:
+                try:
+                    meta = trafilatura.extract_metadata(downloaded)
+                    if meta:
+                        if isinstance(meta, dict):
+                            title = meta.get("title")
+                        else:
+                            # objeto dataclass – tente atributo .title
+                            title = getattr(meta, "title", None)
+                        # Caso meta venha como string JSON
+                        if title is None and isinstance(meta, str):
+                            meta_dict = json.loads(meta)
+                            title = meta_dict.get("title")
+                except Exception:
+                    pass
 
             title = title or "Título não encontrado"
 
-            # --- TEXTO ---
-            text = trafilatura.extract(
-                downloaded,
-                include_formatting=False,
-                include_links=False,
-                favor_recall=False,
-            ) or "Texto não encontrado"
+            # ------------------  TEXTO  ------------------
+            try:
+                text = trafilatura.extract(
+                    downloaded,
+                    include_formatting=False,
+                    include_links=False,
+                    favor_recall=False,
+                )
+            except Exception:
+                text = None
 
+            text = text or "Texto não encontrado"
+
+            # ------------------  UI  ------------------
             st.success("✅ Conteúdo extraído com sucesso!")
 
             st.subheader("Título")
@@ -43,4 +68,10 @@ if url:
             st.subheader("Texto")
             st.code(text, language=None)
 
-            st.caption("Os blocos acima possuem um ícone de cópia no canto superior direito.")
+            st.caption("Clique no ícone de cópia (📋) no canto superior direito dos blocos para copiar.")
+
+# ----------------------------
+#     Como rodar localmente
+# ----------------------------
+# 1. pip install streamlit trafilatura[all]
+# 2. streamlit run trafilatura_streamlit_app.py
