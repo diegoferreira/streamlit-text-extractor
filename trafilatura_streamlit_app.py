@@ -15,14 +15,14 @@ st.markdown(
 # Network helpers
 # ----------------------------
 
-def fetch_with_fallback(url: str) -> str | None:
-    """Tenta baixar a página com Trafilatura; se falhar, usa requests com um User‑Agent comum."""
-    # 1) Tentativa direta (Trafilatura já define um UA próprio)
-    downloaded = trafilatura.fetch_url(url)
-    if downloaded:
-        return downloaded
+def fetch_url_raw(url: str) -> str | None:
+    """Download HTML (unicode str) usando Trafilatura e fallback requests."""
+    # 1) Trafilatura fetch_url
+    html = trafilatura.fetch_url(url)
+    if html:
+        return html
 
-    # 2) Fallback manual com requests
+    # 2) Requests fallback
     try:
         resp = requests.get(
             url,
@@ -36,6 +36,7 @@ def fetch_with_fallback(url: str) -> str | None:
             timeout=20,
         )
         if resp.ok:
+            resp.encoding = resp.apparent_encoding  # garante unicode correto
             return resp.text
     except RequestException:
         pass
@@ -43,59 +44,55 @@ def fetch_with_fallback(url: str) -> str | None:
     return None
 
 
+def maybe_amp_url(url: str) -> str:
+    """Gera uma possível URL AMP (estática) para sites de notícia."""
+    if url.rstrip("/").endswith("/amp"):
+        return url  # já é AMP
+    if url.endswith("/"):
+        return url + "amp"
+    return url + "/amp"
+
+
 # ----------------------------
 # Extraction logic
 # ----------------------------
 
 def extract_text(html: str) -> str | None:
-    """Extrai texto limpo usando uma cascata de técnicas."""
-    # 1) Heurísticas padrão (precisão)
-    text = trafilatura.extract(
-        html,
-        include_formatting=False,
-        include_links=False,
-        favor_recall=False,
-    )
-    if text:
+    """Extrai texto limpo usando cascata de técnicas."""
+    # 1) Precisão
+    text = trafilatura.extract(html, include_formatting=False, include_links=False, favor_recall=False)
+    if text and len(text.split()) > 50:
         return text.strip()
 
-    # 2) Heurísticas de recall (mais permissivas)
-    text = trafilatura.extract(
-        html,
-        include_formatting=False,
-        include_links=False,
-        favor_recall=True,
-    )
-    if text:
+    # 2) Recall
+    text = trafilatura.extract(html, include_formatting=False, include_links=False, favor_recall=True)
+    if text and len(text.split()) > 50:
         return text.strip()
 
-    # 3) Readability‑lxml (útil para páginas com muito JS ou paywall)
+    # 3) Readability‑lxml → html2txt
     try:
-        from readability import Document  # pip install readability‑lxml
-
-        doc = Document(html)
-        main_html = doc.summary(html_partial=True)
+        from readability import Document
+        main_html = Document(html).summary(html_partial=True)
         text = trafilatura.html2txt(main_html)
-        if text:
+        if text and len(text.split()) > 50:
             return text.strip()
     except Exception:
         pass
 
-    # 4) Conversão bruta HTML→TXT (captura tudo)
+    # 4) html2txt puro
     try:
         text = trafilatura.html2txt(html)
-        if text:
+        if text and len(text.split()) > 50:
             return text.strip()
     except Exception:
         pass
 
-    # 5) Fallback BeautifulSoup (último recurso, pode trazer lixo)
+    # 5) BeautifulSoup fallback
     try:
-        from bs4 import BeautifulSoup  # pip install beautifulsoup4
-
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text("\n", strip=True)
-        if text:
+        if text and len(text.split()) > 50:
             return text
     except Exception:
         pass
@@ -111,7 +108,23 @@ url = st.text_input("Insira a URL a ser processada:")
 
 if url:
     with st.spinner("⌛ Baixando e extraindo conteúdo…"):
-        html = fetch_with_fallback(url)
+        # 1) Tenta URL normal
+        html = fetch_url_raw(url)
+        text: str | None = None
+        if html:
+            text = extract_text(html)
+
+        # 2) Se falhar, tenta versão AMP (muitos sites de notícia têm HTML limpo lá)
+        if not text or text == "" or text == "Texto não encontrado":
+            amp_url = maybe_amp_url(url)
+            if amp_url != url:
+                amp_html = fetch_url_raw(amp_url)
+                if amp_html:
+                    text = extract_text(amp_html) or text
+                    # Substitui html para extração de título caso texto AMP funcione
+                    if text and len(text.split()) > 50:
+                        html = amp_html
+
         if not html:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
@@ -140,7 +153,7 @@ if url:
             title = title or "Título não encontrado"
 
             # --------------  TEXTO  --------------
-            text = extract_text(html) or "Texto não encontrado"
+            text = text or "Texto não encontrado"
 
             # --------------  UI  --------------
             st.success("✅ Conteúdo extraído com sucesso!")
