@@ -1,6 +1,8 @@
 import json
 import streamlit as st
 import trafilatura
+import requests
+from requests.exceptions import RequestException
 
 st.set_page_config(page_title="Trafilatura Content Extractor", layout="wide")
 
@@ -9,12 +11,41 @@ st.markdown(
     "Cole a URL de qualquer página pública. O app fará o download, limpará o HTML e mostrará **Título** e **Texto** prontos para copiar."
 )
 
+
+def fetch_with_fallback(url: str) -> str | None:
+    """Tenta baixar a página com Trafilatura; se falhar, usa requests com um User‑Agent comum."""
+    # 1) Tentativa direta (Trafilatura já define um User‑Agent aceitável)
+    downloaded = trafilatura.fetch_url(url)
+    if downloaded:
+        return downloaded
+
+    # 2) Fallback manual caso o site bloqueie o crawler
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                )
+            },
+            timeout=20,
+        )
+        if resp.ok:
+            return resp.text
+    except RequestException:
+        pass
+
+    return None
+
+
 url = st.text_input("Insira a URL a ser processada:")
 
 if url:
     with st.spinner("⌛ Baixando e extraindo conteúdo…"):
-        downloaded = trafilatura.fetch_url(url, headers={"user-agent": "Mozilla/5.0"})
-        if downloaded is None:
+        downloaded = fetch_with_fallback(url)
+        if not downloaded:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
             # ------------------  TÍTULO  ------------------
@@ -35,9 +66,7 @@ if url:
                         if isinstance(meta, dict):
                             title = meta.get("title")
                         else:
-                            # objeto dataclass – tente atributo .title
                             title = getattr(meta, "title", None)
-                        # Caso meta venha como string JSON
                         if title is None and isinstance(meta, str):
                             meta_dict = json.loads(meta)
                             title = meta_dict.get("title")
@@ -73,5 +102,5 @@ if url:
 # ----------------------------
 #     Como rodar localmente
 # ----------------------------
-# 1. pip install streamlit trafilatura[all]
+# 1. pip install streamlit trafilatura[all] requests
 # 2. streamlit run trafilatura_streamlit_app.py
