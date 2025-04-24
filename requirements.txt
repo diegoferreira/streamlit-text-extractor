@@ -1,4 +1,6 @@
 streamlit
 trafilatura[all]
 requests
+readability-lxml
+beautifulsoup4
 
