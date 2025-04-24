@@ -1,2 +1,2 @@
 streamlit
-trafilatura[all]
+trafilatura[all]>=1.6.0
