@@ -13,7 +13,7 @@ url = st.text_input("Insira a URL a ser processada:")
 
 if url:
     with st.spinner("⌛ Baixando e extraindo conteúdo…"):
-        downloaded = trafilatura.fetch_url(url)
+        downloaded = trafilatura.fetch_url(url, headers={\"user-agent\": \"Mozilla/5.0\"})
         if downloaded is None:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
