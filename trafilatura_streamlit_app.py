@@ -5,7 +5,7 @@ st.set_page_config(page_title="Trafilatura Content Extractor", layout="wide")
 
 st.title("🔗 Extrator de Título e Texto via Trafilatura")
 st.markdown(
-    "Entre com a URL de qualquer página pública. O app fará o download, limpará o HTML e mostrará **Título** e **Texto** prontos para copiar."  # noqa: E501
+    "Cole a URL de qualquer página pública. O app fará o download, limpará o HTML e mostrará **Título** e **Texto** prontos para copiar."
 )
 
 url = st.text_input("Insira a URL a ser processada:")
@@ -13,12 +13,21 @@ url = st.text_input("Insira a URL a ser processada:")
 if url:
     with st.spinner("⌛ Baixando e extraindo conteúdo…"):
         downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
+        if downloaded is None:
             st.error("❌ Não foi possível baixar a página. Verifique a URL e tente novamente.")
         else:
-            # Extrai o título de forma dedicada; Trafilatura retorna None caso não encontre
-            title = trafilatura.extract_title(downloaded) or "Título não encontrado"
-            # Extrai o texto principal, removendo links e formatação extra
+            # --- TÍTULO ---
+            # Versões recentes da Trafilatura (≥ 1.6) expõem extract_title; faça fallback caso não exista
+            try:
+                from trafilatura import extract_title  # type: ignore
+                title = extract_title(downloaded)
+            except (ImportError, AttributeError):
+                meta = trafilatura.extract_metadata(downloaded)
+                title = meta["title"] if meta and meta.get("title") else None
+
+            title = title or "Título não encontrado"
+
+            # --- TEXTO ---
             text = trafilatura.extract(
                 downloaded,
                 include_formatting=False,
@@ -29,12 +38,9 @@ if url:
             st.success("✅ Conteúdo extraído com sucesso!")
 
             st.subheader("Título")
-            # st.code oferece botão embutido de copiar ☑️
             st.code(title, language=None)
 
             st.subheader("Texto")
             st.code(text, language=None)
 
-            st.caption(
-                "Os blocos acima possuem um ícone de cópia no canto superior direito para facilitar o uso em outros lugares."
-            )
+            st.caption("Os blocos acima possuem um ícone de cópia no canto superior direito.")
